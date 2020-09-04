@@ -9,7 +9,7 @@
  (julia-mode . ())
  (makefile-gmake-mode . ((indent-tabs-mode . t)))
  (sh-mode . ((sh-basic-offset . 4)))
- (tcl-mode . ((tcl-default-application . "wish")
+ (tcl-mode . (;(tcl-default-application . "wish")
 	      (tcl-indent-level . 4)))
  (yorick-mode . ((c-basic-offset . 4)))
  )
