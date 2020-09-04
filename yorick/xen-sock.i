@@ -16,7 +16,7 @@
 
 // Options and global variables.
 local _xen_listener;     // server socket to accept connections
-local _xen_io_sock;     // symmetric socket connection to peer
+local _xen_io_sock;      // symmetric socket connection to peer
 local _xen_counter;      // counter to generate identifiers
 local _xen_connect_once; // shutdown server after 1st client connection?
 local _xen_debug;        // debug level
@@ -298,9 +298,10 @@ func _xen_send(mesg)
 func xen_stringify(arg)
 /* DOCUMENT str = xen_stringify(arg);
 
-     Convert argument `arg` into a string token.
+     Convert argument `arg` into a string token or into a list of tokens
+     separated by spaces if `arg` is an array of multiple elements.
 
-   SEE ALSO:
+   SEE ALSO: xen_string_replace_all.
  */
 {
     ans = string();
@@ -313,26 +314,11 @@ func xen_stringify(arg)
         T = structof(arg);
         if (T == string) {
             while (++i <= n) {
-                // Replace backslash characters, then replace double quotes.
-                str = arg(i);
-                for (;;) {
-                    sel = strfind("\\", str, n=4);
-                    if (sel(2) == -1) break;
-                    str = streplace(str, sel, "\\\\");
-                    if (sel(0) == -1) break;
-                }
-                for (;;) {
-                    sel = strfind("\"", str, n=4);
-                    if (sel(2) == -1) break;
-                    str = streplace(str, sel, "\\\"");
-                    if (sel(0) == -1) break;
-                }
-                // Finally surround by double quotes.
-                if (ans) {
-                    ans += " \"" + str + "\"";
-                } else {
-                    ans = "\"" + str + "\"";
-                }
+                // Replace backslash characters, then replace double quotes and
+                // finally surround by double quotes.
+                str = xen_string_replace_all(arg(i), "\\", "\\\\");
+                str = xen_string_replace_all(str, "\"", "\\\"");
+                ans = (ans ? ans + " \"" + str + "\"" : "\"" + str + "\"");
             }
             return ans;
         }
@@ -352,4 +338,26 @@ func xen_stringify(arg)
         }
     }
     error, "unexpected argument type";
+}
+
+func xen_string_replace_all(str, pat, sub)
+/* DOCUMENT xen_string_replace_all(str, pat, sub);
+
+     Replace all occurences of `pat` in string `str` by `sub`.  All arguments
+     must be scalar strings (this is not checked for efficiency reasons).
+
+   SEE ALSO: strfind, streplace.
+ */
+{
+    off = 0;
+    inc = strlen(sub) - strlen(pat);
+    for (;;) {
+        // FIXME: make this faster by doing multiple searches
+        sel = strfind(pat, str, off);
+        end = sel(2);
+        if (end < off) break;
+        str = streplace(str, sel, sub);
+        off = end + inc;
+    }
+    return str;
 }
