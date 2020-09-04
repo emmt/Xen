@@ -23,4 +23,4 @@ source [file join $::xen::library "subprocess.tcl"]
 #source [file join $::xen::library "console.tcl"]
 #source [file join $::xen::library "socket.tcl"]
 
-package provide xen 1.0
+package provide Xen 1.0

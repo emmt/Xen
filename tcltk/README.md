@@ -5,12 +5,12 @@
 ## Installation
 
 Xen Tcl/Tk requires that Tcl and Tk but also the TclX extension to be properly
-isntalled.
+installed.
 
 **TBD**
 
 ```.tcl
-package require xen
+package require Xen
 ```
 
 
@@ -25,10 +25,11 @@ set process [::xen::subprocess::spawn $command ...]
 
 where `$command` is the path to the executable and the ellipsis stands for any
 subsequent arguments (Tcl syntax `{*}$args` may be handy to unpack a list of
-arguments).  The result of a successful `::xen::subprocess` is the name of the
-spawned process.  The spawned process runs in the background with its standard
-input and outputs connected by pipes to the Tcl shell.  The process identifier
-(PID) and the channels connected to the spawned process can be retrieved by:
+arguments).  The result of a successful `::xen::subprocess::spawn` is the name
+of the spawned process.  The spawned process runs in the background with its
+standard input and its outputs connected by pipes to the Tcl shell.  The
+process identifier (PID) and the channels connected to the spawned process can
+be retrieved by:
 
 ```.tcl
 ::xen::subprocess::pid    $process
@@ -64,6 +65,6 @@ and call:
 ```
 
 to force the spawned process to terminate.  These two commands return the same
-result as Tclx `wait` command.  After calling `::xen::subprocess::wait` or
+result as TclX `wait` command.  After calling `::xen::subprocess::wait` or
 `::xen::subprocess::burry`, the spawned process and its resources are no longer
 accessible.
