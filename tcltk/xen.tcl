@@ -20,7 +20,8 @@ namespace eval ::xen {
 }
 
 source [file join $::xen::library "subprocess.tcl"]
+source [file join $::xen::library "message.tcl"]
+#source [file join $::xen::library "channel.tcl"]
 #source [file join $::xen::library "console.tcl"]
-#source [file join $::xen::library "socket.tcl"]
 
 package provide Xen 1.0
