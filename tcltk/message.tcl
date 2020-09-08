@@ -46,7 +46,7 @@ namespace eval ::xen::message {
     # with encoding `$enc`.  The channel is flushed after writing the message.
     #
     proc send {io msg {enc "binary"}} {
-        if {$encoding ne "binary"} {
+        if {$enc ne "binary"} {
             # Convert the message (a regular Tcl string) into binary data with
             # the encoding expected by the peer.
             set msg [encoding convertto $enc $msg]
@@ -90,7 +90,7 @@ namespace eval ::xen::message {
         set len [string length $buf]
         if {$len > $off} {
             binary scan $buf "@${off}c" c
-            if {c != 64} {
+            if {$c != 64} {
                 # Byte is not ASCII '@'.
                 error "missing begin message marker"
             }
@@ -100,8 +100,8 @@ namespace eval ::xen::message {
                 binary scan $buf "@${idx}c" c
                 if {48 <= $c && $c <= 57} {
                     # Byte is ASCII digit.
-                    set size [expr {10*$size + ($c - 48)}]
-                } else if {$c == 58} {
+                    set siz [expr {10*$siz + ($c - 48)}]
+                } elseif {$c == 58} {
                     # Byte is ASCII ':'.
                     if {$idx < 2} {
                         error "no message size specified"
