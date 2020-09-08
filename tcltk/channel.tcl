@@ -69,8 +69,29 @@ namespace eval ::xen {
 
 namespace eval ::xen::channel::priv {
     # Default callback to process received messages.
-    proc process {obj msg} {
-        puts stderr "\[recv from $obj\] $msg"
+    proc process {obj typ id msg} {
+        #puts stderr "\[recv from $obj\] $typ $i $msg"
+        switch -exact -- $typ {
+            CMD {
+                set code [catch {uplevel #0 $msg} result]
+                if {$code == 0} {
+                    $obj send_result $id $result
+                } elseif {$code == 1} {
+                    $obj send_error $id $result
+                } else {
+                    $obj send_error $id "code=$code, $result"
+                }
+            }
+            OK {
+                puts stderr "Result of command #$id: $msg"
+            }
+            ERR {
+                puts stderr "Error for command #$id: $msg"
+            }
+            EVT {
+                puts stderr "Received event #$id: $msg"
+            }
+        }
     }
 }
 
@@ -93,9 +114,10 @@ namespace eval ::xen::channel::priv {
     #
     # The callback is called at the toplevel as:
     #
-    #    uplevel #0 $my_cbk [list $obj $msg]
+    #    uplevel #0 $my_cbk $obj $typ $id $msg
     #
-    # where `$obj` is the object instance (as returned by `self`) and `$msg`
+    # where `$obj` is the object instance (as returned by `self`), `$typ` is
+    # the message type, `$id` is the serial number of the message and `$msg`
     # the message contents.
     #
     # Note: The `my_` prefix for instance variables is purely a matter of
@@ -230,7 +252,8 @@ namespace eval ::xen::channel::priv {
                     # Process the message.
                     # FIXME: use a message queue and an idler
                     # FIXME: parse message contents
-                    uplevel #0 $my_cbk [list [self] $msg]
+                    uplevel #0 [list $my_cbk [self]] \
+                        [::xen::message::parse_contents $msg]
                 }
                 if {$consumed > 0} {
                     # Truncate buffer.
@@ -264,9 +287,9 @@ namespace eval ::xen::channel::priv {
 
 # Definitions of Xen Server class.
 ::oo::define ::xen::Server {
-    variable my_sock; # listening socket
+    variable my_sock;       # listening socket
     variable my_maxclients; # max. number of clients
-    variable my_peers; # list of connections to peers (Channel instances)
+    variable my_peers;      # list of connections to peers (Channel instances)
 
     destructor {
         foreach peer $my_peers {
