@@ -10,56 +10,202 @@
 # Copyright (C) 2020, Éric Thiébaut, <https://github.com/emmt/Xen>.
 #
 
-# Private routines and data.
-namespace eval ::xen::channel::priv {
-    variable counter; # counter for instance records
-    if {![info exists counter]} {
-        set counter 0
+namespace eval ::xen {
+
+    # A Xen Channel instance is an i/o connection for sending/receiving
+    # messages.
+    catch {Channel destroy}; # FIXME:
+    ::oo::class create Channel
+
+    # Xen Client class.
+    catch {Client destroy}; # FIXME:
+    ::oo::class create Client
+
+    # Xen Server class.
+    catch {Server destroy}; # FIXME:
+    ::oo::class create Server
+
+    # Provide convenient wrappers.
+    proc channel args {
+        Channel new {*}$args
+    }
+    proc client args {
+        Client new {*}$args
+    }
+    proc server args {
+        Server new {*}$args
     }
 
-    # Default options.
-    variable defaults
-    proc set_default {key val} {
-        variable defaults
-        if {![info exists defaults($key)]} {
-            set defaults($key) $val
+    # Syntax:
+    #
+    #     ::xen::channel $chn ?$enc?
+    #
+    # Yield a new Xen Channel instance using Tcl channel `$chn` for sending and
+    # receiving messages.  Optional argument `$enc` is to specify the encoding
+    # assumed for textual messages.  By default, `iso8859-1` is assumed.  Call
+    # `encoding names` for a list of supported encodings.
+    #
+    # The result is the name of the Xen Channel instance.
+    #
+    #     $obj encoding;  # yields current encoding for textual messages
+    #     $obj channel;   # yields i/o channel
+    #     $obj counter;   # yields number of command/event messages sent to
+    #                     # the peer
+    #
+    # To send a command `$cmd` to be evaluated by the peer or an event `$evt`:
+    #     set id [$obj send_command $cmd]
+    #     set id [$obj send_event $evt]
+    #
+    # To report the success or the failure of a previous command received from
+    # the peer, call:
+    #
+    #     $obj send_result $id $val
+    #     $obj send_error $id $msg
+    #
+    # where `$id` is the serial number of the command, `$val` is the result
+    # returned by the command if successful while `$msg` is the error message.
+    #
+}
+
+namespace eval ::xen::channel::priv {
+    # Default callback to process received messages.
+    proc process {obj msg} {
+        puts stderr "\[recv from $obj\] $msg"
+    }
+}
+
+# Definitions of Xen Channel class.
+::oo::define ::xen::Channel {
+    #
+    # Instance variables are:
+    #
+    # - `my_cnt`: counter to generate unique serial numbers;
+    # - `my_io`:  i/o channel to communicate with the peer;
+    # - `my_enc`: encoding assumed for textual messages, can be "binary";
+    # - `my_buf`: buffer of unprocessed bytes;
+    # - `my_off`: offset to next message header/body in buffer;
+    # - `my_siz`: size of next message body in buffer, -1 if unknown yet;
+    # - `my_cbk`: callback to process received messages.
+    #
+    # If `$my_siz` < 0, then `$my_off` is the offset of the next message
+    # header.  If `$my_siz` >= 0, then `$my_siz` and `$my_off` are respectively
+    # the size (in bytes) and the offset of the next message contents.
+    #
+    # The callback is called at the toplevel as:
+    #
+    #    uplevel #0 $my_cbk [list $obj $msg]
+    #
+    # where `$obj` is the object instance (as returned by `self`) and `$msg`
+    # the message contents.
+    #
+    # Note: The `my_` prefix for instance variables is purely a matter of
+    # conventions in Xen.  This makes clear which variables are object
+    # variables and also helps converting the code into other languages (e.g.,
+    # a variable `my_var` translates as `self.var` in Python).
+    #
+    variable my_cnt
+    variable my_io
+    variable my_enc
+    variable my_buf
+    variable my_off
+    variable my_siz
+    variable my_cbk
+
+    constructor {chn {enc "iso8859-1"}} {
+        if {$enc ne "binary" && $enc ni [encoding names]} {
+            error "invalid encoding \"$enc\""
+        }
+        ::xen::message::configure_channel $chn
+        fileevent $chn readable [callback _receive]
+        set my_cnt  0
+        set my_io   $chn
+        set my_enc  $enc
+        set my_cbk  ::xen::channel::priv::process
+        set my_buf  ""
+        set my_off  0
+        set my_siz -1
+    }
+
+    destructor {
+        catch {
+            puts stderr "Closing $my_io..."
+            fileevent $my_io readable {}
+            close $my_io
         }
     }
 
-    # Default encoding assumed by the peer.
-    set_default encoding "iso8859-1"
+    # Accessors.
 
-    # Default callback to process received messages.
-    set_default callback ::xen::channel::priv::on_process
-    proc on_process msg {
-        puts stderr "\[recv\] $msg"
+    # Yield encoding.
+    method encoding {} {
+        set my_enc
     }
 
-    # Callback for receiving messages.
-    proc on_receive chn {
-        upvar 0 ::xen::channel::priv::$chn rec
+    # Yield i/o channel.
+    method channel {} {
+        set my_io
+    }
+
+    method set_processor cbk {
+        if {[llength $cbk] == 0} {
+            set my_cbk ::xen::channel::priv::process
+        } else {
+            set my_cbk $cbk
+        }
+    }
+
+    # Send a command to the peer and return its serial number.
+    method send_command cmd {
+        set id [incr my_cnt]
+        ::xen::message::send $my_io \
+            [::xen::message::format_contents "CMD" $id $cmd] $my_enc
+        return $id
+    }
+
+    # Send an event to the peer and return its serial number.
+    method send_event evt {
+        set id [incr my_cnt]
+        ::xen::message::send $my_io \
+            [::xen::message::format_contents "EVT" $id $evt] $my_enc
+        return $id
+    }
+
+    # Report the success of a previous command received from the peer.
+    method send_result {id val} {
+        ::xen::message::send $my_io \
+            [::xen::message::format_contents "OK" $id $val] $my_enc
+    }
+
+    # Report the failure of a previous command received from the peer.
+    # By convention, `$id` is 0 if it is an error unrelated to a specific
+    # command.
+    method send_error {id msg} {
+        ::xen::message::send $my_io \
+            [::xen::message::format_contents "ERR" $id $msg] $my_enc
+    }
+
+    # Private callback for receiving messages.
+    method _receive {} {
         try {
             # Note that `string length` yields size in bytes for binary data.
-            set dat [read $io]
+            set dat [read $my_io]
             if {[string length $dat] > 0} {
-                set buf [append $rec(buf) $dat]
-                set len [string length $buf]
-                set off $rec(off)
-                set siz $rec(siz)
+                append my_buf $dat
+                set len [string length $my_buf]
                 set consumed 0
                 while {true} {
                     # Is there a (complete) pending message?
-                    if {$rec(siz) < 0} {
+                    if {$my_siz < 0} {
                         # Header of next message has not yet been parsed.
                         # Attempt to parse it.
                         lassign [::xen::message::parse_header \
-                                     $rec(buf) $rec(off)] rec(off) rec(siz)
-                        if {$rec(siz) < 0} {
+                                     $my_buf $my_off] my_off my_siz
+                        if {$my_siz < 0} {
                             # No complete header found.
                             break
                         }
                     }
-                    if {$len < $rec(off) + $rec(siz)} {
+                    if {$len < $my_off + $my_siz} {
                         # Not enough collected data for the body of the
                         # message.
                         break
@@ -67,162 +213,123 @@ namespace eval ::xen::channel::priv {
 
                     # Extract message body as a string using the encoding
                     # assumed by the peer.
-                    if {$rec(siz) > 0} {
-                        binary scan $rec(buf) "@$rec(off)a$rec(siz)" body
-                        if {$rec(enc) ne "binary"} {
-                            set msg [encoding convertfrom $rec(enc) $body]
+                    if {$my_siz > 0} {
+                        binary scan $my_buf "@${my_off}a${my_siz}" msg
+                        if {$my_enc ne "binary"} {
+                            set msg [encoding convertfrom $my_enc $msg]
                         }
                     } else {
                         set msg ""
                     }
 
-                    # Update offset, number of consumed bytes and message body
-                    # size for next message.
-                    set consumed [incr rec(off) $rec(siz)]
-                    set rec(siz) -1
+                    # Update offset, number of consumed bytes and size of
+                    #contents for next message.
+                    set consumed [incr my_off $my_siz]
+                    set my_siz -1
 
                     # Process the message.
-                    $rec(cbk) $msg
+                    # FIXME: use a message queue and an idler
+                    # FIXME: parse message contents
+                    uplevel #0 $my_cbk [list [self] $msg]
                 }
                 if {$consumed > 0} {
                     # Truncate buffer.
                     if {$consumed >= $len} {
-                        set rec(buf) ""
+                        set my_buf ""
                     } else {
-                        set rec(buf) [string range $rec(off) end $rec(buf)]
+                        binary scan $my_buf "@${consumed}a*" my_buf
                     }
-                    set rec(off) [expr {$rec(off) - $consumed}]
+                    set my_off [expr {$my_off - $consumed}]
                 }
-            } on error {result options} {
-                puts stderr "closing message channel on error"
-                ::xen::channel::close $chn
-                return -options $options $result
             }
+        } on error {result options} {
+            puts stderr "Closing message channel on error for [self]"
+            my destroy
+            return -options $options $result
         }
+    }
+
+}
+
+# Definitions of Xen Client class.
+::oo::define ::xen::Client {
+    superclass ::xen::Channel
+    constructor {host port} {
+        next [socket $host $port]
+    }
+    destructor {
+        next
     }
 }
 
-# Xen message channel data is stored into array `::xen::channel::priv::$chn`
-# with `$chn` the name of the instance (in the form `xen_io$numb` where `$numb`
-# is a unique number.  Assuming `rec` is the instance record, the fields are:
-#
-# - `rec(buf)`: buffer of unprocessed bytes;
-# - `rec(off)`: offset to next message header/body in buffer;
-# - `rec(siz)`: size of next message body in buffer, -1 if unknown yet;
-# - `rec(io)`:  i/o channel for communcating with the peer;
-# - `rec(enc)`: encoding assumed by the peer, can be "binary";
-# - `rec(cbk)`: callback to process received messages.
-#
-# If `rec(siz)` < 0, then `rec(off)` is the offset of the next message
-# header.  If `rec(siz)` >= 0, then `rec(siz)` and `rec(off)` are
-# respectively the size (in bytes) and the offset of the next message body.
+# Definitions of Xen Server class.
+::oo::define ::xen::Server {
+    variable my_sock; # listening socket
+    variable my_maxclients; # max. number of clients
+    variable my_peers; # list of connections to peers (Channel instances)
 
-namespace eval ::xen::channel {
-
-    proc connect args {
-        # The same arguments as for creating a client socket are allowed.
-        set socket_args {}
-        set create_args {}
-        set npos 0; # number of positional arguments
-        set opt true
-        set nargs [llength $args]
-        for {set i 0} {$opt && $i < nargs} {incr i} {
-            set arg [lindex $args $i]
-            if {$arg eq "-myaddr" || $arg eq "-myport"} {
-                if {$i >= $nargs - 1} {
-                    error "missing value for option $arg"
-                }
-                incr i
-                set val [lindex $args $i]
-                lappend socket_args $arg $val
-            } elseif {$arg eq "-async"} {
-                lappend socket_args $arg
-            } elseif {$arg eq "-encoding" || $arg eq "-callback"} {
-                if {$i >= $nargs - 1} {
-                    error "missing value for option $arg"
-                }
-                incr i
-                set val [lindex $args $i]
-                lappend create_args $arg $val
-            } elseif {$arg eq "--"} {
-                set opt false
-            } else {
-                set opt false
-            }
+    destructor {
+        foreach peer $my_peers {
+            catch {$peer destroy}
         }
-
-        if {[llength $args] >= 1 && [lindex $args 0] eq "-server"} {
-            error "invalid option: -server"
-        }
-
-        set io [::socket {*}$socket_options $host $port]
-        set chn [create $io {*}$create_options]
-        return $chn
+        catch {close $my_sock}
     }
 
-    # ::xen::channel::create io [-encoding enc] [-callback cbk]
-    #
-    # Register a new message channel using Tcl channel `io` for
-    # sending/receiving the messages.  Options are the encoding of textual
-    # messages and the callback for processing received messages.  The callback
-    # is called as `cbk msg` with `msg` the received message.
-    proc create {io args} {
-        # Parse options.
+    constructor args {
+        # Parse arguments (FIXME: detect options specified more than once).
         if {[llength $args]%2 != 0} {
-            error "expecting option-value pairs"
+            error "value for \"[lindex $args end]\" is not specified"
         }
-        array set opt [array get ::xen::channel::priv::defaults]
+        array set opt {
+            -addr       "localhost"
+            -port        0
+            -maxclients -1
+        }
         foreach {key val} $args {
-            switch -exact -- $key {
-                -encoding {
-                    set opt(encoding) $val
-                }
-                -callback {
-                    set opt(callback) $val
-                }
-                default {
-                    error "unknown option \"$key\""
-                }
+            if {![info exists opt($key)]} {
+                error "unknown option \"$key\""
             }
+            set opt($key) $val
+        }
+        if {[catch {incr opt(-port) 0}] || $opt(-port) < 0} {
+            error "invalid value for option \"-port\""
+        }
+        if {[catch {incr opt(-maxclients) 0}]} {
+            error "invalid value for option \"-maxclients\""
+        }
+        if {$opt(-addr) eq "localhost"} {
+            set opt(-addr) "127.0.0.1"
         }
 
-        # Configure channel.
-        ::xen::message::configure_channel $io
-
-        # New array to store instance data.
-        set cnt [incr ::xen::channel::priv::counter]
-        set chn xen_io$cnt
-        upvar 0 ::xen::channel::priv::$chn rec
-        if {[info exists rec]} {
-            error "array \"::xen::channel::priv::$chn\" already exists"
+        # Create the listening socket.
+        set xargs [list -server [callback _accept]]
+        if {$opt(-addr) ne "*"} {
+            lappend xargs -myaddr $opt(-addr)
         }
-        set rec(buf)  ""; # buffer of unprocessed bytes
-        set rec(off)   0; # offset to next message header/body in buffer
-        set rec(siz)  -1; # size of next message body in buffer
-        set rec(io)  $io; # i/o connection
-        set rec(enc) $opt(encoding); # encoding assumed by the peer
-        set rec(cbk) $opt(callback); # callback to process received messages
+        lappend xargs $opt(-port)
+        puts stderr "calling \"[list socket {*}$xargs]\"..."
+        set my_sock [socket {*}$xargs]
+
+        # Set other instance variables.
+        set my_maxclients $opt(-maxclients)
+        set my_peers {}
+
+        # Print some information.
+        foreach {addr host port} [chan configure $my_sock -sockname] {
+            puts stderr "Listening at addr=$addr, host=$host, port=$port."
+        }
     }
 
-    # Close Xen message channel `chn`.  Associated resources are released and
-    # the communication channel is closed.
-    proc close chn {
-        ::close [::xen::channel::forget $chn]
-    }
-
-    # Forget (unregister) the message connection named `$chn` and return
-    # its communication channel.  Call `::xen::channel::close` to also
-    # close the communication channel.
-    proc forget chn {
-        upvar 0 ::xen::channel::priv::$chn rec
-        set io $rec(io)
-        unset -nocomplain -- rec
-        return $io
-    }
-
-    proc send {chn msg} {
-        upvar 0 ::xen::channel::priv::$chn rec
-        ::xen::message::send $rec(io) $rec(enc) $msg
+    method _accept {sock addr port} {
+        if {$my_maxclients != -1 && [llength $my_peers] >= $my_maxclients} {
+            puts stderr "Too many clients."
+            close $sock
+            return
+        }
+        puts stderr \
+            "Accepting connection from client (addr=$addr, port=$port)"
+        set peer [::xen::Channel new $sock]
+        lappend my_peers $peer
     }
 
 }
