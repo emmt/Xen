@@ -286,6 +286,9 @@ namespace eval ::xen::channel::priv {
 }
 
 # Definitions of Xen Server class.
+#
+# FIXME: There should be means to remove a peer from the list of the server
+#        when connection is closed.
 ::oo::define ::xen::Server {
     variable my_sock;       # listening socket
     variable my_maxclients; # max. number of clients
@@ -330,7 +333,6 @@ namespace eval ::xen::channel::priv {
             lappend xargs -myaddr $opt(-addr)
         }
         lappend xargs $opt(-port)
-        puts stderr "calling \"[list socket {*}$xargs]\"..."
         set my_sock [socket {*}$xargs]
 
         # Set other instance variables.
@@ -338,9 +340,32 @@ namespace eval ::xen::channel::priv {
         set my_peers {}
 
         # Print some information.
-        foreach {addr host port} [chan configure $my_sock -sockname] {
-            puts stderr "Listening at addr=$addr, host=$host, port=$port."
+        foreach {addr host port} [my socknames] {
+            #puts stderr "Listening at addr=$addr, host=$host, port=$port."
+            puts stderr \
+                "Call \"::xen::client $addr $port\" to connect a client"
         }
+    }
+
+    # Yield the list of peer connections.
+    method peers {} {
+        set my_peers
+    }
+
+    # Yields a list of triplets `{addr host port}` where the server can be
+    # reached.
+    method socknames {} {
+        chan configure $my_sock -sockname
+    }
+
+    # Disconnect a peer (client).
+    method disconnect peer {
+        set i [lsearch -exact $my_peers $peer]
+        if {$i < 0} {
+            error "object \"$peer\" is not a peer of this server"
+        }
+        set my_peers [lreplace $my_peers $i $i]
+        $peer destroy
     }
 
     method _accept {sock addr port} {
@@ -354,5 +379,4 @@ namespace eval ::xen::channel::priv {
         set peer [::xen::Channel new $sock]
         lappend my_peers $peer
     }
-
 }
