@@ -12,7 +12,7 @@
 
 # Private routines and data.
 namespace eval ::xen::channel::priv {
-    variable counter;  # counter for instance records
+    variable counter; # counter for instance records
     if {![info exists counter]} {
         set counter 0
     }
@@ -119,6 +119,47 @@ namespace eval ::xen::channel::priv {
 
 namespace eval ::xen::channel {
 
+    proc connect args {
+        # The same arguments as for creating a client socket are allowed.
+        set socket_args {}
+        set create_args {}
+        set npos 0; # number of positional arguments
+        set opt true
+        set nargs [llength $args]
+        for {set i 0} {$opt && $i < nargs} {incr i} {
+            set arg [lindex $args $i]
+            if {$arg eq "-myaddr" || $arg eq "-myport"} {
+                if {$i >= $nargs - 1} {
+                    error "missing value for option $arg"
+                }
+                incr i
+                set val [lindex $args $i]
+                lappend socket_args $arg $val
+            } elseif {$arg eq "-async"} {
+                lappend socket_args $arg
+            } elseif {$arg eq "-encoding" || $arg eq "-callback"} {
+                if {$i >= $nargs - 1} {
+                    error "missing value for option $arg"
+                }
+                incr i
+                set val [lindex $args $i]
+                lappend create_args $arg $val
+            } elseif {$arg eq "--"} {
+                set opt false
+            } else {
+                set opt false
+            }
+        }
+
+        if {[llength $args] >= 1 && [lindex $args 0] eq "-server"} {
+            error "invalid option: -server"
+        }
+
+        set io [::socket {*}$socket_options $host $port]
+        set chn [create $io {*}$create_options]
+        return $chn
+    }
+
     # ::xen::channel::create io [-encoding enc] [-callback cbk]
     #
     # Register a new message channel using Tcl channel `io` for
@@ -149,11 +190,11 @@ namespace eval ::xen::channel {
         ::xen::message::configure_channel $io
 
         # New array to store instance data.
-        set numb [incr ::xen::channel::priv::counter]
-        set name xen_io$numb
-        upvar 0 ::xen::channel::priv::$name rec
+        set cnt [incr ::xen::channel::priv::counter]
+        set chn xen_io$cnt
+        upvar 0 ::xen::channel::priv::$chn rec
         if {[info exists rec]} {
-            error "array \"::xen::channel::priv::$name\" already exists"
+            error "array \"::xen::channel::priv::$chn\" already exists"
         }
         set rec(buf)  ""; # buffer of unprocessed bytes
         set rec(off)   0; # offset to next message header/body in buffer
@@ -163,13 +204,13 @@ namespace eval ::xen::channel {
         set rec(cbk) $opt(callback); # callback to process received messages
     }
 
-    # Close Xen message channel `chn`.  Associated resources are released
-    # and the communication channel is closed.
+    # Close Xen message channel `chn`.  Associated resources are released and
+    # the communication channel is closed.
     proc close chn {
         ::close [::xen::channel::forget $chn]
     }
 
-    # Forget (unregister) the message connection named `$name` and return
+    # Forget (unregister) the message connection named `$chn` and return
     # its communication channel.  Call `::xen::channel::close` to also
     # close the communication channel.
     proc forget chn {
