@@ -634,66 +634,11 @@ func _xen_eval(id, fn, arg1, arg2, arg3, arg4, arg5, arg6, arg7)
 func xen_stringify(arg)
 /* DOCUMENT str = xen_stringify(arg);
 
-     Convert argument `arg` into a string token or into a list of tokens
-     separated by spaces if `arg` is an array of multiple elements.
+     Convert argument `arg` into a string.
 
-   SEE ALSO: xen_string_replace_all.
+   SEE ALSO: print.
  */
 {
-    ans = string();
-    if (is_void(arg)) {
-        return ans;
-    }
-    if (is_array(arg)) {
-        i = 0;
-        n = numberof(arg);
-        T = structof(arg);
-        if (T == string) {
-            while (++i <= n) {
-                // Replace backslash characters, then replace double quotes and
-                // finally surround by double quotes.
-                str = xen_string_replace_all(arg(i), "\\", "\\\\");
-                str = xen_string_replace_all(str, "\"", "\\\"");
-                ans = (ans ? ans + " \"" + str + "\"" : "\"" + str + "\"");
-            }
-            return ans;
-        }
-        if (T == long || T == int || T == char || T == short) {
-            while (++i <= n) {
-                ans = (ans ? swrite(format="%s %d", ans, arg(i)) :
-                       swrite(format="%d", arg(i)));
-            }
-            return ans;
-        }
-        if (T == double || T == float) {
-            while (++i <= n) {
-                ans = (ans ? swrite(format="%s %#g", ans, arg(i)) :
-                       swrite(format="%#g", arg(i)));
-            }
-            return ans;
-        }
-    }
-    error, "unexpected argument type";
-}
-
-func xen_string_replace_all(str, pat, sub)
-/* DOCUMENT xen_string_replace_all(str, pat, sub);
-
-     Replace all occurences of `pat` in string `str` by `sub`.  All arguments
-     must be scalar strings (this is not checked for efficiency reasons).
-
-   SEE ALSO: strfind, streplace.
- */
-{
-    off = 0;
-    inc = strlen(sub) - strlen(pat);
-    for (;;) {
-        // FIXME: make this faster by doing multiple searches
-        sel = strfind(pat, str, off);
-        end = sel(2);
-        if (end < off) break;
-        str = streplace(str, sel, sub);
-        off = end + inc;
-    }
-    return str;
+    arr = print(arg);
+    return numberof(arr) == 1 ? arr(1) : sum(arr);
 }
