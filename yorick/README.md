@@ -1,5 +1,14 @@
 # A Yorick implementation of Xen
 
+To load Xen functions in Yorick, use the directive:
+
+```.c
+#include "xen.i"
+```
+
+unless the Xen auto-load definitions have been properly installed.
+
+
 ## Message channels
 
 Yorick implementation of Xen can run a server and provide means to connect to
