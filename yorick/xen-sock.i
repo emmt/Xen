@@ -20,6 +20,10 @@ local _xen_io_sock;      // symmetric socket connection to peer
 local _xen_counter;      // counter to generate identifiers
 local _xen_connect_once; // shutdown server after 1st client connection?
 local _xen_debug;        // debug level
+local _xen_last_message; // last message in queue
+local _xen_first_message;// first message in queue
+local _xen_script_code;  // code of script to evaluate
+local _xen_script_func;  // function to call to evaluate script
 
 if (is_void(_xen_counter)) _xen_counter = 0;
 if (is_void(_xen_debug)) _xen_debug = 1;
@@ -100,7 +104,7 @@ func _xen_send_to(_xen_io_sock, typ, id, str)
 func xen_get_server_port(nil)
 /* DOCUMENT port = xen_get_server_port();
 
-     Get the prot number of the Xen server; -1 is returned if no server is
+     Get the port number of the Xen server; -1 is returned if no server is
      running.
 
    SEE ALSO: xen_server.
@@ -112,7 +116,7 @@ func xen_get_server_port(nil)
 /*---------------------------------------------------------------------------*/
 /* MANAGEMENT OF CONNECTION WITH PEER */
 
-local xen_disconnect, xen_reconnect, _xen_on_recv;
+local xen_disconnect, xen_reconnect;
 func xen_connect(host, port)
 /* DOCUMENT xen_connect, host, port;
          or xen_reconnect, host, port;
@@ -137,13 +141,13 @@ func xen_connect(host, port)
     }
 }
 
-func xen_reconnect(host, port)
+func xen_reconnect(host, port) /* DOCUMENTED */
 {
     xen_disconnect;
     xen_connect, host, port;
 }
 
-func xen_disconnect(quiet)
+func xen_disconnect(quiet) /* DOCUMENTED */
 {
     if (!is_void(_xen_io_sock)) {
         close, _xen_io_sock;
@@ -155,6 +159,13 @@ func xen_disconnect(quiet)
 }
 
 func _xen_on_recv(sock)
+/* DOCUMENT _xen_on_recv, sock;
+
+      Private subroutine implementing the callback called when baytes are
+      available from the peer.
+
+   SEE ALSO: xen_connect, xen_server, xen_push_message.
+ */
 {
     /* A new message has been sent by the peer (or the peer has closed the
        connection).  The difficulty is that Yorick sockets are in blocking
@@ -220,46 +231,208 @@ func _xen_on_recv(sock)
     } else {
         mesg = string();
     }
-
-    after, 0.0, _xen_process_message, mesg;
+    xen_push_message, mesg;
 }
 
-func _xen_process_message(mesg)
-{
-    write, format="[recv] %s\n", mesg;
-}
+/*---------------------------------------------------------------------------*/
+/* PROCESSING OF MESSAGES */
 
+local XenMessage;
 local xen_format_message, xen_parse_message;
 /* DOCUMENT msg = xen_format_message(typ, id, str);
-         or local typ, id, str; xen_parse_message, typ, id, str, msg;
+         or obj = xen_parse_message(msg);
 
      The first statement, yields a Xen textual message `msg` given the type
      `typ`, serial number `id` and contents `str` of the message.  Argument
      `typ` and `str` are scalar strings, argument `id` is an integer.
 
-     The remaing statements, parse the textual Xen message `msg` into its
-     components.
+     The second statement, parse the textual Xen message `msg` and returns
+     a `XenMessage` instance.
 
    SEE ALSO: xen_send_command, xen_send_data, xen_send_result.
  */
-func xen_format_message(typ, id, str)
+func xen_format_message(typ, id, str) /* DOCUMENTED */
 {
     return swrite(format="%s:%d:%s", typ, id, str);
 }
 
-func xen_parse_message(&typ, &id, &str, msg)
+struct XenMessage {
+    string  type; // type of message
+    string  mesg; // contents of message
+    long      id; // serial number
+    pointer next; // next message or NULL
+}
+
+func xen_parse_message(msg) /* DOCUMENTED */
 {
     sel = strfind(":", msg, n=2);
     if (sel(0) > 0) {
         id = 0;
         if (sread(strpart(msg, sel(2)+1:sel(3)), id) == 1) {
-            typ = strpart(msg, 1:sel(1));
-            str = strpart(msg, sel(4)+1:);
-            return;
+            return XenMessage(type = strpart(msg, 1:sel(1)),
+                              id = id,
+                              mesg = strpart(msg, sel(4)+1:));
         }
     }
     error, "invalid message format";
 }
+
+func xen_more_messages(nil)
+/* DOCUMENT xen_more_messages();
+
+     Query whether or not there are unprocessed messages in the queue.
+
+   SEE ALSO: xen_push_message, xen_pop_message.
+ */
+{
+    return !is_void(_xen_first_message);
+}
+
+func xen_push_message(msg)
+/* DOCUMENT xen_push_message(msg);
+
+     Push a new message in the queue of messages to process.  Argument `msg`
+     may be the string in the form accepted by `xen_parse_message` or an
+     instance of `XenMessage`.  The message processor is rescheduled
+     as needed.
+
+     The processing of messages is done when Yorick is idle and one message at
+     a time.  Messages are processed in order, that is the message queue is a
+     "First In First Out" queue (FIFO).
+
+   SEE ALSO: xen_parse_message, xen_pop_message, xen_more_messages.
+ */
+{
+    T = structof(msg);
+    if (T == string) {
+        msg = xen_parse_message(msg);
+    } else {
+        /* Assume message has already been parsed.  Make a copy of it only if
+           it has a successor. */
+        if (msg.next) {
+            msg = msg;
+            msg.next = &[];
+        }
+    }
+    if (is_void(_xen_first_message)) {
+        /* The message queue was empty. */
+        eq_nocopy, _xen_first_message, msg;
+        after, 0.0, _xen_process_messages;
+    } else {
+        /* The message queue was not empty. */
+        _xen_last_message.next = &msg;
+    }
+    eq_nocopy, _xen_last_message, msg;
+}
+
+func xen_pop_message(nil)
+/* DOCUMENT msg = xen_pop_message();
+
+     Pop first message out of the queue of messages to process and return it.
+     The result is an instance of `XenMessage` or nothing ig the queue was
+     empty.  The message processor is automatically rescheduled if there are
+     other queued messages.
+
+   SEE ALSO: xen_push_message, xen_more_messages.
+ */
+{
+    if (is_void(_xen_first_message)) {
+        /* The message queue is empty. */
+        return;
+    }
+    local msg;
+    eq_nocopy, msg, _xen_first_message;
+    next = msg.next;
+    if (next) {
+        /* The message queue will not be empty. */
+        eq_nocopy, _xen_first_message, *next;
+        after, 0.0, _xen_process_messages;
+    } else {
+        /* The message queue will be empty. */
+        _xen_first_message = [];
+        _xen_last_message = [];
+        after, -, _xen_process_messages;
+    }
+    msg.next = &[]; // so that it is ok to re-queue message
+    return msg;
+}
+
+func _xen_process_messages(nil)
+/* DOCUMENT _xen_process_messages;
+
+     Private callback called to process the first pending message in the queue.
+
+   SEE ALSO: xen_pop_message, xen_push_message.
+ */
+{
+    /* The processing of the different types of messages is delegated to
+       different functions because error handling depend on the context. */
+    msg = xen_pop_message();
+    if (msg.type == "CMD") {
+        _xen_process_command, msg.id, msg.mesg;
+    } else if (msg.type == "EVT") {
+        _xen_process_event, msg.id, msg.mesg;
+    } else if (msg.type == "OK") {
+        _xen_process_result, msg.id, msg.mesg;
+    } else if (msg.type == "ERR") {
+        _xen_process_error, msg.id, msg.mesg;
+    } else {
+        write, format="ERROR (%s) %s (type=%s, id=%d, mesg=%s)\n",
+            "_xen_process_messages", "unknown message type",
+            msg.type, msg.id, msg.mesg;
+    }
+}
+
+func _xen_process_command(id, cmd)
+{
+    /* `_xen_process_command` calls `xen_execute_script` to be able to catch
+       compilation errors which is not possible when `include` is called.  In
+       case of compilation error, the exact error message goes to Yorick's
+       `stdin` and will not be received by the peer but, at least, a syntax
+       error will be notified. */
+    extern _xen_script_code, _xen_script_func;
+    if (catch(-1)) {
+        xen_send_error, id, catch_message;
+        return;
+    }
+    ans = [];
+    val = xen_execute_script(cmd);
+    if (is_void(val)) {
+        ans = string();
+    } else if (is_scalar(val)) {
+        if (is_string(val)) {
+            eq_nocopy, ans, val;
+        } else if (is_integer(val)) {
+            ans = swrite(format="%d", val);
+        } else if (is_real(val)) {
+            ans = swrite(format="%#.17g", val);
+        }
+    }
+    if (is_void(ans)) {
+        error, "result must be nothing, a string or a non-complex number";
+    }
+    xen_send_result, id, ans;
+}
+
+func _xen_process_event(id, evt)
+{
+    write, format="EVENT (%d) %s\n", id, evt;
+}
+
+func _xen_process_result(id, ans)
+{
+    if (_xen_debug) {
+        write, format="OK (%d) %s\n", id, ans;
+    }
+}
+
+func _xen_process_error(id, msg)
+{
+    write, format="ERROR (%d) %s\n", id, msg;
+}
+
+/*---------------------------------------------------------------------------*/
+/* SENDING OF MESSAGES */
 
 func xen_send_command(cmd) { return _xen_send_serial("CMD", cmd); }
 func xen_send_event(evt)   { return _xen_send_serial("EVT", evt); }
@@ -362,6 +535,57 @@ func xen_send_data(data)
 /*---------------------------------------------------------------------------*/
 /* UTILITIES */
 
+func xen_execute_script(script)
+/* DOCUMENT ans = xen_execute_script(script);
+
+     Compile and execute Yorick code specified by `script` (a scalar string).
+     The code is wrapped into an anonymous function and the returned result
+     `ans` is given by the first `return` statement in `script` which is
+     excecuted or nothing if there is no such statement.
+
+     For instance:
+
+         xen_execute_script("return sqrt(2);")
+
+     yields the value 1.41411 while:
+
+         xen_execute_script("sqrt(2);")
+
+     yields nothing but prints "1.41411" on the standard output because
+     the result of the expression is not assigned to a variable.  To avoid
+     this:
+
+         xen_execute_script("dummy = sqrt(2);")
+
+     Note that the variable `dummy` above is local to the anonymous function
+     and has thus no side effects.
+
+     The code specified by `script` may be arbitrarily complex as far as it
+     constitutes valid Yorick code inside a function.  The scoping rules for
+     the symbols used in `script` are the same as for any other Yorick
+     function.  In the above example, `sqrt` is extern while `dummy` is local.
+     Statements like `local` and `extern` may be used in `script` to override
+     implicit rules.
+
+   SEE ALSO: include.
+ */
+{
+    extern _xen_script_code, _xen_script_func;
+
+    /* Compile script and call the resulting function. */
+    if (is_void(_xen_script_code)) {
+        _xen_script_code = ["func _xen_script_func(nil) {", string(), "}"];
+    }
+    _xen_script_code(2) = script;
+    _xen_script_func = 0; /* Anything not a function to detect compilation
+                             errors. */
+    include, _xen_script_code, 1;
+    if (is_func(_xen_script_func)) {
+        return _xen_script_func();
+    }
+    error, "syntax error";
+}
+
 func xen_warn(mesg)
 {
     write, format="WARNING - %s\n", mesg;
@@ -371,16 +595,6 @@ func xen_info(mesg)
 {
     write, format="INFO - %s\n", mesg;
 }
-
-//_xen_nuller = where(0);
-
-//func xen_extract(data, rng)
-//{
-//    if (is_void(rng)) {
-//        return;
-//    }
-//    return data(rng(1):rng(2));
-//}
 
 func _xen_eval(id, fn, arg1, arg2, arg3, arg4, arg5, arg6, arg7)
 /* DOCUMENT _xen_eval, id, fn, arg1, arg2, ...;
