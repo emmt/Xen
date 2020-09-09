@@ -1,10 +1,7 @@
 /*
- * xen-sock.i -
+ * xen-mesg.i -
  *
- * Mangement of the socket connection for the Xen infrastructure.
- *
- * The public part of the API which may be called by the peer is kept as simple
- * as possible to be compatible with the limitations of the `funcdef` function.
+ * Implement Xen messaging system.
  *
  *-----------------------------------------------------------------------------
  *
@@ -13,6 +10,10 @@
  *
  * Copyright (C) 2020, Éric Thiébaut, <https://github.com/emmt/Xen>.
  */
+
+if (!is_scalar(XEN_HOME) || !is_string(XEN_HOME)) {
+    error, "include \"xen.i\" first";
+}
 
 // Options and global variables.
 local _xen_listener;     // server socket to accept connections
@@ -400,16 +401,19 @@ func _xen_process_command(id, cmd)
     if (is_void(val)) {
         ans = string();
     } else if (is_scalar(val)) {
-        if (is_string(val)) {
+        T = structof(val);
+        if (T == string) {
             eq_nocopy, ans, val;
-        } else if (is_integer(val)) {
+        } else if (T == long || T == int || T == int) {
             ans = swrite(format="%d", val);
-        } else if (is_real(val)) {
+        } else if (T == double) {
             ans = swrite(format="%#.17g", val);
+        } else if (T == float) {
+            ans = swrite(format="%#.8g", val);
         }
     }
     if (is_void(ans)) {
-        error, "result must be nothing, a string or a non-complex number";
+        ans = xen_stringify(val);
     }
     xen_send_result, id, ans;
 }
@@ -636,9 +640,27 @@ func xen_stringify(arg)
 
      Convert argument `arg` into a string.
 
-   SEE ALSO: print.
+   SEE ALSO: print, print_format, xen_set_print_format.
  */
 {
     arr = print(arg);
     return numberof(arr) == 1 ? arr(1) : sum(arr);
 }
+
+func xen_set_print_format
+/* DOCUMENT xen_set_print_format;
+
+      Set format strings for `print` so as to not loose precision for floating
+      point numbers.
+
+   SEE ALSO: print, print_format, xen_stringify.
+ */
+{
+    line_length = 80;
+    max_lines = 10000;
+    print_format, line_length, max_lines,
+        char="0x%02x", short="%d", int="%d", long="%ld",
+        float="%#.8gf", double="%#.17g", complex="%#.17g+%#.17gi";
+}
+
+xen_set_print_format;
