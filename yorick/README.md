@@ -17,15 +17,17 @@ xen_server, port;
 
 where `port` is the port number or `0` to let the system decides.  If `port` is
 omitted, `port=0` is assumed.  If successfully started, the server prints a
-message indicating to which port it can be reached.  The function
-`xen_get_server_port()` can be also called to query the port number where the
-server is listening for connections (a value of `-1` is returned if there is no
-server currently running).  After starting, the server runs in the background
-and may be terminated by calling:
+message indicating at which port it can be reached.  The function
+`xen_get_server_port()` can also be called to query the port number where the
+server is listening for connections (a value of `-1` is returned if there are
+no servers currently running).  After starting, the server runs in the
+background and may be terminated by calling:
 
 ```.c
 xen_shutdown;
 ```
+
+This only shutdown the server not the connection to a peer.
 
 At any time there can be at most one Xen connection used to exchange messages
 with a peer.  If a Xen server is running, the first connected client will use
@@ -97,8 +99,8 @@ the command if successful while `msg` is the error message.  The same policy is
 expected from the peer when a command is sent by Yorick with
 `xen_send_command`.  The exact behavior depends on the procedure called to
 respond to messages.  By default, received commands are executed and their
-success or failure is reported to the peer as explained above.  Other received
-messages are printed to the standard error output.
+success or failure is reported to the peer as explained above.  For now, other
+received messages are printed to the standard error output.
 
 
 ### Evaluation of Commands
@@ -135,7 +137,7 @@ xen_execute_script("sqrt(2);")
 
 yields nothing but prints `1.41411` on Yorick's standard output because the
 result of the expression is not assigned to a variable.  To avoid this, the
-command should be:
+command could be:
 
 ```.c
 xen_execute_script("dummy = sqrt(2);")
