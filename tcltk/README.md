@@ -149,55 +149,74 @@ Commands are however executed in the order they are received.
 
 ## Sub-processes
 
-Xen command `::xen::subprocess::spawn` can be called to launch a sub-process in
+Xen command `::xen::spawn` can be called to launch a sub-process in
 the background.  For instance:
 
 ```.tcl
-set process [::xen::subprocess::spawn $command ...]
+set process [::xen::spawn $command ...]
 ```
 
 where `$command` is the path to the executable and the ellipsis stands for any
 subsequent arguments (Tcl syntax `{*}$args` may be handy to unpack a list of
-arguments).  The result of a successful `::xen::subprocess::spawn` is the name
-of the spawned process.  The spawned process runs in the background with its
-standard input and its outputs connected by pipes to the Tcl shell.  The
+arguments).  The result of a successful `::xen::spawn` is a `xen::Subprocess`
+instance.  The spawned process runs in the background with its standard input
+and outputs (`stdin`, `stdout` and `stderr`) connected to the Tcl shell.  The
 process identifier (PID) and the channels connected to the spawned process can
-be retrieved by:
+be retrieved by *accessor* methods:
 
 ```.tcl
-::xen::subprocess::pid    $process
-::xen::subprocess::stdin  $process
-::xen::subprocess::stdout $process
-::xen::subprocess::stderr $process
+$process pid
+$process stdin
+$process stdout
+$process stderr
 ```
 
 which respectively yield the PID of the spawned process, the writable channel
 connected to the standard input of the spawned process, the readable channel
 connected to the standard output of the spawned process and the readable
-channel connected to the error output of the spawned process.  The readable
-channels connected to the spawned process are configured in non-blocking mode.
+channel connected to the error output of the spawned process.  Initially, the
+readable channels connected to the spawned process are configured in
+non-blocking mode and all channels connected to the spawned process assumes
+the encoding given by `encoding system`.
 
-To send a signal to a spawned process, call:
+The `encoding` method can be used to query or set the assumed ancoding:
 
 ```.tcl
-::xen::subprocess::kill $signal $process
+$process encoding;      # yields the current encoding
+$process encoding $enc; # set the encoding to $enc
+```
+
+To send some text, say `$str`, to the spawned process, call the `send` method:
+
+```.tcl
+$process send $str
+```
+
+The string `$str` will be written to the standard input of the spawned process
+using the current encoding.  The `send` method also takes care of flushing the
+standard input of the spawned process.
+
+The `kill` method may be used to send a signal to the spawned process:
+
+```.tcl
+$process kill $signal
 ```
 
 where `$signal` is a signal name like `SIGINT`.
 
-To wait for a spawned process to terminate, call:
+To patiently wait for the spawned process to terminate, call the `wait` method:
 
 ```.tcl
-::xen::subprocess::wait $process
+$process wait
 ```
 
-and call:
+this may however block forever.  Call the `bury` method to force the spawned
+process to terminate:
 
 ```.tcl
-::xen::subprocess::burry $process
+$process bury
 ```
 
-to force the spawned process to terminate.  These two commands return the same
-result as TclX `wait` command.  After calling `::xen::subprocess::wait` or
-`::xen::subprocess::burry`, the spawned process and its resources are no longer
-accessible.
+These two methods return the same result as TclX `wait` command.  After calling
+the methods `wait` or `burry`, the spawned process and its resources are no
+longer accessible.
