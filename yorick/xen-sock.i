@@ -258,7 +258,7 @@ func xen_format_message(typ, id, str) /* DOCUMENTED */
 
 struct XenMessage {
     string  type; // type of message
-    string  mesg; // contents of message
+    string  data; // contents of message
     long      id; // serial number
     pointer next; // next message or NULL
 }
@@ -271,7 +271,7 @@ func xen_parse_message(msg) /* DOCUMENTED */
         if (sread(strpart(msg, sel(2)+1:sel(3)), id) == 1) {
             return XenMessage(type = strpart(msg, 1:sel(1)),
                               id = id,
-                              mesg = strpart(msg, sel(4)+1:));
+                              data = strpart(msg, sel(4)+1:));
         }
     }
     error, "invalid message format";
@@ -369,17 +369,17 @@ func _xen_process_messages(nil)
        different functions because error handling depend on the context. */
     msg = xen_pop_message();
     if (msg.type == "CMD") {
-        _xen_process_command, msg.id, msg.mesg;
+        _xen_process_command, msg.id, msg.data;
     } else if (msg.type == "EVT") {
-        _xen_process_event, msg.id, msg.mesg;
+        _xen_process_event, msg.id, msg.data;
     } else if (msg.type == "OK") {
-        _xen_process_result, msg.id, msg.mesg;
+        _xen_process_result, msg.id, msg.data;
     } else if (msg.type == "ERR") {
-        _xen_process_error, msg.id, msg.mesg;
+        _xen_process_error, msg.id, msg.data;
     } else {
-        write, format="ERROR (%s) %s (type=%s, id=%d, mesg=%s)\n",
+        write, format="ERROR (%s) %s (type=%s, id=%d, data=%s)\n",
             "_xen_process_messages", "unknown message type",
-            msg.type, msg.id, msg.mesg;
+            msg.type, msg.id, msg.data;
     }
 }
 
