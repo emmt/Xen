@@ -86,8 +86,8 @@ func _xen_on_connect(listener)
     }
 }
 
-func _xen_send_to(_xen_io_sock, typ, id, str)
-/* DOCUMENT _xen_send_to, sock, typ, id, str;
+func _xen_send_to(_xen_io_sock, cat, num, str)
+/* DOCUMENT _xen_send_to, sock, cat, num, str;
 
      Send a formatted message to another peer than the default one.
 
@@ -99,7 +99,7 @@ func _xen_send_to(_xen_io_sock, typ, id, str)
    SEE ALSO: _xen_on_connect.
  */
 {
-    xen_send_data, xen_format_message(typ, id, str);
+    xen_send_data, xen_format_message(cat, num, str);
 }
 
 func xen_get_server_port(nil)
@@ -240,27 +240,27 @@ func _xen_on_recv(sock)
 
 local XenMessage;
 local xen_format_message, xen_parse_message;
-/* DOCUMENT msg = xen_format_message(typ, id, str);
+/* DOCUMENT msg = xen_format_message(cat, num, str);
          or obj = xen_parse_message(msg);
 
-     The first statement, yields a Xen textual message `msg` given the type
-     `typ`, serial number `id` and contents `str` of the message.  Argument
-     `typ` and `str` are scalar strings, argument `id` is an integer.
+     The first statement, yields a Xen textual message `msg` given the category
+     `cat`, serial number `num` and contents `str` of the message.  Argument
+     `cat` and `str` are scalar strings, argument `num` is an integer.
 
      The second statement, parse the textual Xen message `msg` and returns
      a `XenMessage` instance.
 
    SEE ALSO: xen_send_command, xen_send_data, xen_send_result.
  */
-func xen_format_message(typ, id, str) /* DOCUMENTED */
+func xen_format_message(cat, num, str) /* DOCUMENTED */
 {
-    return swrite(format="%s:%d:%s", typ, id, str);
+    return swrite(format="%s:%d:%s", cat, num, str);
 }
 
 struct XenMessage {
-    string  type; // type of message
+    string   cat; // category of message
+    long     num; // serial number
     string  data; // contents of message
-    long      id; // serial number
     pointer next; // next message or NULL
 }
 
@@ -268,10 +268,10 @@ func xen_parse_message(msg) /* DOCUMENTED */
 {
     sel = strfind(":", msg, n=2);
     if (sel(0) > 0) {
-        id = 0;
-        if (sread(strpart(msg, sel(2)+1:sel(3)), id) == 1) {
-            return XenMessage(type = strpart(msg, 1:sel(1)),
-                              id = id,
+        num = 0;
+        if (sread(strpart(msg, sel(2)+1:sel(3)), num) == 1) {
+            return XenMessage(cat = strpart(msg, 1:sel(1)),
+                              num = num,
                               data = strpart(msg, sel(4)+1:));
         }
     }
@@ -366,25 +366,25 @@ func _xen_process_messages(nil)
    SEE ALSO: xen_pop_message, xen_push_message.
  */
 {
-    /* The processing of the different types of messages is delegated to
+    /* The processing of the different categories of messages is delegated to
        different functions because error handling depend on the context. */
     msg = xen_pop_message();
-    if (msg.type == "CMD") {
-        _xen_process_command, msg.id, msg.data;
-    } else if (msg.type == "EVT") {
-        _xen_process_event, msg.id, msg.data;
-    } else if (msg.type == "OK") {
-        _xen_process_result, msg.id, msg.data;
-    } else if (msg.type == "ERR") {
-        _xen_process_error, msg.id, msg.data;
+    if (msg.cat == "CMD") {
+        _xen_process_command, msg.num, msg.data;
+    } else if (msg.cat == "EVT") {
+        _xen_process_event, msg.num, msg.data;
+    } else if (msg.cat == "OK") {
+        _xen_process_result, msg.num, msg.data;
+    } else if (msg.cat == "ERR") {
+        _xen_process_error, msg.num, msg.data;
     } else {
-        write, format="ERROR (%s) %s (type=%s, id=%d, data=%s)\n",
-            "_xen_process_messages", "unknown message type",
-            msg.type, msg.id, msg.data;
+        write, format="ERROR (%s) %s (cat=%s, num=%d, data=%s)\n",
+            "_xen_process_messages", "unknown message category",
+            msg.cat, msg.num, msg.data;
     }
 }
 
-func _xen_process_command(id, cmd)
+func _xen_process_command(num, cmd)
 {
     /* `_xen_process_command` calls `xen_execute_script` to be able to catch
        compilation errors which is not possible when `include` is called.  In
@@ -393,7 +393,7 @@ func _xen_process_command(id, cmd)
        error will be notified. */
     extern _xen_script_code, _xen_script_func;
     if (catch(-1)) {
-        xen_send_error, id, catch_message;
+        xen_send_error, num, catch_message;
         return;
     }
     ans = [];
@@ -415,24 +415,24 @@ func _xen_process_command(id, cmd)
     if (is_void(ans)) {
         ans = xen_stringify(val);
     }
-    xen_send_result, id, ans;
+    xen_send_result, num, ans;
 }
 
-func _xen_process_event(id, evt)
+func _xen_process_event(num, evt)
 {
-    write, format="EVENT (%d) %s\n", id, evt;
+    write, format="EVENT (%d) %s\n", num, evt;
 }
 
-func _xen_process_result(id, ans)
+func _xen_process_result(num, ans)
 {
     if (_xen_debug) {
-        write, format="OK (%d) %s\n", id, ans;
+        write, format="OK (%d) %s\n", num, ans;
     }
 }
 
-func _xen_process_error(id, msg)
+func _xen_process_error(num, msg)
 {
-    write, format="ERROR (%d) %s\n", id, msg;
+    write, format="ERROR (%d) %s\n", num, msg;
 }
 
 /*---------------------------------------------------------------------------*/
@@ -440,23 +440,23 @@ func _xen_process_error(id, msg)
 
 func xen_send_command(cmd) { return _xen_send_serial("CMD", cmd); }
 func xen_send_event(evt)   { return _xen_send_serial("EVT", evt); }
-/* DOCUMENT id = xen_send_command(cmd);
-         or id = xen_send_event(evt);
+/* DOCUMENT num = xen_send_command(cmd);
+         or num = xen_send_event(evt);
 
      Send a command `cmd` to be evaluated by the peer or signal an event `evt`
-     to the peer.  The unique serial number `id` of the message if
+     to the peer.  The unique serial number `num` of the message if
      automatically generated and returned to the caller.
 
    SEE ALSO: xen_send_result, xen_stringify.
  */
 
-func xen_send_result(id, val) { _xen_send_format, "OK",  id, val; }
-func xen_send_error(id, msg)  { _xen_send_format, "ERR", id, msg; }
-/* DOCUMENT xen_send_result, id, val;
-         or xen_send_error, id, msg;
+func xen_send_result(num, val) { _xen_send_format, "OK",  num, val; }
+func xen_send_error(num, msg)  { _xen_send_format, "ERR", num, msg; }
+/* DOCUMENT xen_send_result, num, val;
+         or xen_send_error, num, msg;
 
      Report the success or the failure of a previous command received from the
-     peer.  Argument `id` is the serial number of the command, `val` is the
+     peer.  Argument `num` is the serial number of the command, `val` is the
      result returned by the command if successful while `msg` is the error
      message.
 
@@ -468,30 +468,30 @@ func xen_send_error(id, msg)  { _xen_send_format, "ERR", id, msg; }
 
 local _xen_send_format;
 local _xen_send_serial;
-/* DOCUMENT _xen_send_format, typ, id, str;
-         or id = _xen_send_serial(typ, str);
+/* DOCUMENT _xen_send_format, cat, num, str;
+         or num = _xen_send_serial(cat, str);
 
      Low-level functions to send a formatted message.  The call to
-     `_xen_send_format` is equivallent to:
+     `_xen_send_format` is equivalent to:
 
-         xen_send_data, xen_format_message(typ, id, str);
+         xen_send_data, xen_format_message(cat, num, str);
 
      The call to `_xen_send_serial` is similar except that the serial number
-     `id` is automatically generated and returned to the caller.
+     `num` is automatically generated and returned to the caller.
 
    SEE ALSO: xen_send_result, xen_send_result, xen_stringify.
  */
 
-func _xen_send_serial(typ, str)
+func _xen_send_serial(cat, str)
 {
-    id = ++_xen_counter;
-    xen_send_data, xen_format_message(typ, id, str);
-    return id;
+    num = ++_xen_counter;
+    xen_send_data, xen_format_message(cat, num, str);
+    return num;
 }
 
-func _xen_send_format(typ, id, str)
+func _xen_send_format(cat, num, str)
 {
-    xen_send_data, xen_format_message(typ, id, str);
+    xen_send_data, xen_format_message(cat, num, str);
 }
 
 func xen_send_data(data)
@@ -600,21 +600,21 @@ func xen_info(mesg)
     write, format="INFO - %s\n", mesg;
 }
 
-func _xen_eval(id, fn, arg1, arg2, arg3, arg4, arg5, arg6, arg7)
-/* DOCUMENT _xen_eval, id, fn, arg1, arg2, ...;
+func _xen_eval(num, fn, arg1, arg2, arg3, arg4, arg5, arg6, arg7)
+/* DOCUMENT _xen_eval, num, fn, arg1, arg2, ...;
 
      Evaluate a command sent by the peer and manage to send back the result of
-     this call (whether the call is successful or not).  `id` is the
+     this call (whether the call is successful or not).  `num` is the
      identifier, `fn` the function to call, `arg1`, `arg2`, etc. the arguments.
      This sub-routine is intented to be called via `funcdef`:
 
-         funcdef("_xen_eval id fn arg1 arg2 ...")
+         funcdef("_xen_eval num fn arg1 arg2 ...")
 
    SEE ALSO: funcdef.
  */
 {
     if (catch(-1)) {
-        _xen_post_result, "ERROR", id, catch_message;
+        _xen_post_result, "ERROR", num, catch_message;
     } else {
         /*  */ if (! is_void(arg7)) {
             ans = fn(arg1, arg2, arg3, arg4, arg5, arg6, arg7);
@@ -631,7 +631,7 @@ func _xen_eval(id, fn, arg1, arg2, arg3, arg4, arg5, arg6, arg7)
         } else {
             ans = fn(arg1);
         }
-        _xen_post_result, "OK", id, ans;
+        _xen_post_result, "OK", num, ans;
     }
 }
 

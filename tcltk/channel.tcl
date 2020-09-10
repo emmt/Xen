@@ -53,43 +53,43 @@ namespace eval ::xen {
     #                     # the peer
     #
     # To send a command `$cmd` to be evaluated by the peer or an event `$evt`:
-    #     set id [$obj send_command $cmd]
-    #     set id [$obj send_event $evt]
+    #     set num [$obj send_command $cmd]
+    #     set num [$obj send_event $evt]
     #
     # To report the success or the failure of a previous command received from
     # the peer, call:
     #
-    #     $obj send_result $id $val
-    #     $obj send_error $id $msg
+    #     $obj send_result $num $val
+    #     $obj send_error $num $msg
     #
-    # where `$id` is the serial number of the command, `$val` is the result
+    # where `$num` is the serial number of the command, `$val` is the result
     # returned by the command if successful while `$msg` is the error message.
     #
 }
 
 namespace eval ::xen::channel::priv {
     # Default callback to process received messages.
-    proc process {obj typ id msg} {
-        #puts stderr "\[recv from $obj\] $typ $i $msg"
-        switch -exact -- $typ {
+    proc process {obj cat num msg} {
+        #puts stderr "\[recv from $obj\] $cat $num $msg"
+        switch -exact -- $cat {
             CMD {
                 set code [catch {uplevel #0 $msg} result]
                 if {$code == 0} {
-                    $obj send_result $id $result
+                    $obj send_result $num $result
                 } elseif {$code == 1} {
-                    $obj send_error $id $result
+                    $obj send_error $num $result
                 } else {
-                    $obj send_error $id "code=$code, $result"
+                    $obj send_error $num "code=$code, $result"
                 }
             }
             OK {
-                puts stderr "Result of command #$id: $msg"
+                puts stderr "Result of command #$num: $msg"
             }
             ERR {
-                puts stderr "Error for command #$id: $msg"
+                puts stderr "Error for command #$num: $msg"
             }
             EVT {
-                puts stderr "Received event #$id: $msg"
+                puts stderr "Received event #$num: $msg"
             }
         }
     }
@@ -114,11 +114,11 @@ namespace eval ::xen::channel::priv {
     #
     # The callback is called at the toplevel as:
     #
-    #    uplevel #0 $my_cbk $obj $typ $id $msg
+    #    uplevel #0 $my_cbk $obj $cat $num $msg
     #
-    # where `$obj` is the object instance (as returned by `self`), `$typ` is
-    # the message type, `$id` is the serial number of the message and `$msg`
-    # the message contents.
+    # where `$obj` is the object instance (as returned by `self`), `$cat` is
+    # the message category, `$num` is the serial number of the message and
+    # `$msg` the message contents.
     #
     # Note: The `my_` prefix for instance variables is purely a matter of
     # conventions in Xen.  This makes clear which variables are object
@@ -178,35 +178,35 @@ namespace eval ::xen::channel::priv {
 
     # Send a command to the peer and return its serial number.
     method send_command cmd {
-        set id [incr my_cnt]
+        set num [incr my_cnt]
         ::xen::message::send $my_io \
-            [::xen::message::format_contents "CMD" $id $cmd] $my_enc
-        return $id
+            [::xen::message::format_contents "CMD" $num $cmd] $my_enc
+        return $num
     }
 
     # Send an event to the peer and return its serial number.
     method send_event evt {
-        set id [incr my_cnt]
+        set num [incr my_cnt]
         ::xen::message::send $my_io \
-            [::xen::message::format_contents "EVT" $id $evt] $my_enc
-        return $id
+            [::xen::message::format_contents "EVT" $num $evt] $my_enc
+        return $num
     }
 
     # Report the success of a previous command received from the peer.
-    method send_result {id val} {
+    method send_result {num val} {
         ::xen::message::send $my_io \
-            [::xen::message::format_contents "OK" $id $val] $my_enc
+            [::xen::message::format_contents "OK" $num $val] $my_enc
     }
 
     # Report the failure of a previous command received from the peer.
-    # By convention, `$id` is 0 if it is an error unrelated to a specific
+    # By convention, `$num` is 0 if it is an error unrelated to a specific
     # command.
-    method send_error {id msg} {
+    method send_error {num msg} {
         ::xen::message::send $my_io \
-            [::xen::message::format_contents "ERR" $id $msg] $my_enc
+            [::xen::message::format_contents "ERR" $num $msg] $my_enc
     }
 
-    # Private callback for receiving messages.
+    # Private callback for receiving messages from the peer.
     method _receive {} {
         try {
             # Note that `string length` yields size in bytes for binary data.

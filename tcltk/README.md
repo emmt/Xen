@@ -45,19 +45,19 @@ To send a command `$cmd` to be evaluated by the peer or an event `$evt`, do one
 of:
 
 ```.tcl
-set id [$obj send_command $cmd]
-set id [$obj send_event $evt]
+set num [$obj send_command $cmd]
+set num [$obj send_event $evt]
 ```
 
 To report the success or the failure of a previous command received from
 the peer, call:
 
 ```.tcl
-$obj send_result $id $val
-$obj send_error $id $msg
+$obj send_result $num $val
+$obj send_error $num $msg
 ```
 
-where `$id` is the serial number of the command, `$val` is the result
+where `$num` is the serial number of the command, `$val` is the result
 returned by the command if successful while `$msg` is the error message.
 
 The communication is assumed to be symmetric, *i.e.* the client may also
@@ -79,11 +79,11 @@ where, for each received message, `$script` will be called (at the top level)
 as:
 
 ```.tcl
-uplevel #0 $script $obj $typ $id $msg
+uplevel #0 $script $obj $cat $num $msg
 ```
 
-where `$obj` is the connection instance, `$typ` is the message type (`CMD`,
-`OK`, `ERR` or `EVT`), `$id` is the serial number of the message and `$msg` the
+where `$obj` is the connection instance, `$cat` is the message category (`CMD`,
+`OK`, `ERR` or `EVT`), `$num` is the serial number of the message and `$msg` the
 message contents.
 
 To restore the default behavior:
@@ -94,46 +94,46 @@ $obj set_processor {}
 
 The following conventions hold:
 
-- If `$typ` is `CMD`, the peer has sent a command (*e.g.* by calling its
-  `send_command` method), `$id` is the unique serial number of this command and
+- If `$cat` is `CMD`, the peer has sent a command (*e.g.* by calling its
+  `send_command` method), `$num` is the unique serial number of this command and
   `$msg` is the command to execute.  The peer expects a response sent by the
-  `send_result` or the `send_error` methods with the same serial number `$id`
+  `send_result` or the `send_error` methods with the same serial number `$num`
   as the received command.
 
-- If `$typ` is `OK`, the command number `$id` sent to the peer was successful
+- If `$cat` is `OK`, the command number `$num` sent to the peer was successful
   and `$msg` is the result returned by evaluating this command.
 
-- If `$typ` is `ERR`, the command number `$id` sent to the peer has failed
+- If `$cat` is `ERR`, the command number `$num` sent to the peer has failed
   and `$msg` is the corresponding error message.
 
-- If `$typ` is `EVT`, the peer is signalling an event whose serial number and
-  assiocated contents are `$id` and `$msg`.  No response is expected by the
+- If `$cat` is `EVT`, the peer is signalling an event whose serial number and
+  assiocated contents are `$num` and `$msg`.  No response is expected by the
   peer (although the event may trigger the sending of a command or of another
   event to the peer, it is up to you).
 
 A possible processor script is:
 
 ```.tcl
-proc process {obj typ id msg} {
-    switch -exact -- $typ {
+proc process {obj cat num msg} {
+    switch -exact -- $cat {
         CMD {
             set code [catch {uplevel #0 $msg} result]
             if {$code == 0} {
-                $obj send_result $id $result
+                $obj send_result $num $result
             } elseif {$code == 1} {
-                $obj send_error $id $result
+                $obj send_error $num $result
             } else {
-                $obj send_error $id "code=$code, $result"
+                $obj send_error $num "code=$code, $result"
             }
         }
         OK {
-            puts stderr "Result of command #$id: $msg"
+            puts stderr "Result of command #$num: $msg"
         }
         ERR {
-            puts stderr "Error for command #$id: $msg"
+            puts stderr "Error for command #$num: $msg"
         }
         EVT {
-            puts stderr "Received event #$id: $msg"
+            puts stderr "Received event #$num: $msg"
         }
     }
 }
