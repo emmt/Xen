@@ -270,6 +270,13 @@ namespace eval ::xen::channel::priv {
             my destroy
             return -options $options $result
         }
+        if {[eof $my_io]} {
+            # Connection closed by peer.  Remove callcback and close our side
+            # of the connection.
+            fileevent $my_io readable {}
+            close $my_io
+            set my_io ""
+        }
     }
 
 }
