@@ -396,26 +396,7 @@ func _xen_process_command(num, cmd)
         xen_send_error, num, catch_message;
         return;
     }
-    ans = [];
-    val = xen_execute_script(cmd);
-    if (is_void(val)) {
-        ans = string();
-    } else if (is_scalar(val)) {
-        T = structof(val);
-        if (T == string) {
-            eq_nocopy, ans, val;
-        } else if (T == long || T == int || T == int) {
-            ans = swrite(format="%d", val);
-        } else if (T == double) {
-            ans = swrite(format="%#.17g", val);
-        } else if (T == float) {
-            ans = swrite(format="%#.8g", val);
-        }
-    }
-    if (is_void(ans)) {
-        ans = xen_stringify(val);
-    }
-    xen_send_result, num, ans;
+    xen_send_result, num, xen_stringify(xen_execute_script(cmd));
 }
 
 func _xen_process_event(num, evt)
@@ -638,13 +619,20 @@ func _xen_eval(num, fn, arg1, arg2, arg3, arg4, arg5, arg6, arg7)
 func xen_stringify(arg)
 /* DOCUMENT str = xen_stringify(arg);
 
-     Convert argument `arg` into a string.
+     Convert argument `arg` into a string.  The result is an empty string if
+     `arg` is nothing and a string equivalent to `sum(print(arg))` otherwise.
 
    SEE ALSO: print, print_format, xen_set_print_format.
  */
 {
-    arr = print(arg);
-    return numberof(arr) == 1 ? arr(1) : sum(arr);
+    if (is_void(arg)) {
+        return string();
+    } else {
+        /* Note that `sum(arr)` is faster than `arr(sum)`, about twice
+           faster. */
+        arr = print(arg);
+        return numberof(arr) == 1 ? arr(1) : sum(arr);
+    }
 }
 
 func xen_set_print_format
