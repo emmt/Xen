@@ -25,6 +25,7 @@ namespace eval ::xen {
         set library [file dirname [info script]]
     }
 }
+source [file join $::xen::library "queue.tcl"]
 source [file join $::xen::library "subprocess.tcl"]
 source [file join $::xen::library "message.tcl"]
 source [file join $::xen::library "channel.tcl"]
